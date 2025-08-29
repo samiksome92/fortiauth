@@ -245,8 +245,10 @@ func main() {
 			}
 
 			if retryCount > maxRetries {
-				log.Println("Maximum number of retries exceeded while trying to keepalive. Clearing keepalive url")
+				log.Println("Maximum number of retries exceeded while trying to keepalive. Clearing state")
 				retryCount = 0
+				state.loggedIn = false
+				state.authURL = ""
 				state.keepaliveURL = ""
 			}
 		} else {
