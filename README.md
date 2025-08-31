@@ -16,6 +16,7 @@ Options:
         --check_time int       Seconds to wait before re-checking state (default 10)
     -h, --help                 Print this help
         --keepalive_time int   Seconds to wait before sending keepalive request (default 60)
+    -f, --pass_file string     File with credentials
     -p, --password string      Password
         --retry_time int       Seconds to wait before retrying operations (default 1)
         --url string           URL to use for checking connection (default "http://google.com")

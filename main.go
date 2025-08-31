@@ -14,11 +14,14 @@ import (
 	"syscall"
 	"time"
 
+	toml "github.com/pelletier/go-toml"
 	"github.com/spf13/pflag"
 	"golang.org/x/term"
 )
 
 const maxRetries = 5
+
+var client = http.Client{Timeout: time.Duration(10) * time.Second}
 
 // Stores the current login status along with authentication and keepalive urls.
 type state struct {
@@ -32,7 +35,7 @@ type state struct {
 // If any error occurs then it is returned while state remains unchanged. Otherwise `state.loggedIn` is set to the
 // appropriate value and `nil` is returned. If user is not logged in then `state.authURL` is also set.
 func check(checkURL string, state *state) error {
-	resp, err := http.Get(checkURL)
+	resp, err := client.Get(checkURL)
 	if err != nil {
 		return err
 	}
@@ -66,7 +69,7 @@ func check(checkURL string, state *state) error {
 // If any error occurs it is returned and state is unchanged. Otherwise `state.loggedIn` is set to `true` and
 // `state.keepaliveURL` is set to the extracted keepalive url and `nil` is returned.
 func auth(username string, password string, state *state) error {
-	resp, err := http.Get(state.authURL)
+	resp, err := client.Get(state.authURL)
 	if err != nil {
 		return err
 	}
@@ -89,7 +92,7 @@ func auth(username string, password string, state *state) error {
 		values.Set("username", username)
 		values.Set("password", password)
 		values.Set("magic", string(match[1]))
-		resp, err = http.PostForm(state.authURL[:8+strings.Index(state.authURL[8:], "/")], values)
+		resp, err = client.PostForm(state.authURL[:8+strings.Index(state.authURL[8:], "/")], values)
 		if err != nil {
 			return err
 		}
@@ -117,7 +120,7 @@ func auth(username string, password string, state *state) error {
 //
 // If any error occurs it is returned, otherwise returns `nil`. Does not modify `state`.
 func keepalive(state *state) error {
-	resp, err := http.Get(state.keepaliveURL)
+	resp, err := client.Get(state.keepaliveURL)
 	if err != nil {
 		return err
 	}
@@ -130,10 +133,47 @@ func keepalive(state *state) error {
 	return nil
 }
 
+// Gets username and password.
+//
+// Username and password are set with the following priority:
+//  1. Command line arguments.
+//  2. Password file.
+//  3. Environment variables.
+func getUserPass(argUser string, argPass string, argFile string) (string, string) {
+	username := os.Getenv("FORTIAUTH_USERNAME")
+	password := os.Getenv("FORTIAUTH_PASSWORD")
+
+	if argFile != "" {
+		data, err := toml.LoadFile(argFile)
+		if err != nil {
+			fmt.Printf("Failed to read %v: %v\n", argFile, err)
+		} else {
+			userTOML := data.Get("username")
+			if userTOML != nil {
+				username = userTOML.(string)
+			}
+			passTOML := data.Get("password")
+			if passTOML != nil {
+				password = passTOML.(string)
+			}
+		}
+	}
+
+	if argUser != "" {
+		username = argUser
+	}
+	if argPass != "" {
+		password = argPass
+	}
+
+	return username, password
+}
+
 func main() {
 	help := pflag.BoolP("help", "h", false, "Print this help")
 	username := pflag.StringP("username", "u", "", "Username")
 	password := pflag.StringP("password", "p", "", "Password")
+	passFile := pflag.StringP("pass_file", "f", "", "File with credentials")
 	checkURL := pflag.String("url", "http://google.com", "URL to use for checking connection")
 	retryTime := pflag.Int64("retry_time", 1, "Seconds to wait before retrying operations")
 	checkTime := pflag.Int64("check_time", 10, "Seconds to wait before re-checking state")
@@ -147,6 +187,8 @@ func main() {
 		pflag.PrintDefaults()
 		os.Exit(0)
 	}
+
+	*username, *password = getUserPass(*username, *password, *passFile)
 
 	if *username == "" {
 		fmt.Print("username: ")
@@ -175,9 +217,9 @@ func main() {
 	go func() {
 		<-sigs
 
-		if state.loggedIn {
+		if state.loggedIn && state.keepaliveURL != "" {
 			log.Println("Logging out")
-			resp, err := http.Get(strings.Replace(state.keepaliveURL, "keepalive", "logout", 1))
+			resp, err := client.Get(strings.Replace(state.keepaliveURL, "keepalive", "logout", 1))
 			if err != nil {
 				log.Fatalf("Failed to log out: %v. Exiting program\n", err)
 			}
@@ -185,6 +227,8 @@ func main() {
 				log.Fatalf("Failed to log out: response status %v. Exiting program\n", resp.Status)
 			}
 			log.Println("Successfully logged out. Exiting program")
+			os.Exit(0)
+		} else {
 			os.Exit(0)
 		}
 	}()
