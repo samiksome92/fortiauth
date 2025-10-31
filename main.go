@@ -2,9 +2,11 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -175,6 +177,7 @@ func main() {
 	password := pflag.StringP("password", "p", "", "Password")
 	passFile := pflag.StringP("pass_file", "f", "", "File with credentials")
 	checkURL := pflag.String("url", "http://google.com", "URL to use for checking connection")
+	dnsServer := pflag.String("dns", "", "DNS server to use for connections")
 	retryTime := pflag.Int64("retry_time", 1, "Seconds to wait before retrying operations")
 	checkTime := pflag.Int64("check_time", 10, "Seconds to wait before re-checking state")
 	keepaliveTime := pflag.Int64("keepalive_time", 60, "Seconds to wait before sending keepalive request")
@@ -207,6 +210,21 @@ func main() {
 			os.Exit(1)
 		}
 		*password = string(data)
+	}
+
+	if *dnsServer != "" {
+		dialer := net.Dialer{
+			Resolver: &net.Resolver{
+				PreferGo: true,
+				Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+					d := net.Dialer{
+						Timeout: time.Duration(5) * time.Second,
+					}
+					return d.DialContext(ctx, "udp", *dnsServer)
+				},
+			},
+		}
+		http.DefaultTransport.(*http.Transport).DialContext = dialer.DialContext
 	}
 
 	state := new(state)

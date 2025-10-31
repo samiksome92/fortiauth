@@ -14,6 +14,7 @@ Either download a release directly from the releases page or use Go:
 Options:
 
         --check_time int       Seconds to wait before re-checking state (default 10)
+        --dns string           DNS server to use for connections
     -h, --help                 Print this help
         --keepalive_time int   Seconds to wait before sending keepalive request (default 60)
     -f, --pass_file string     File with credentials
